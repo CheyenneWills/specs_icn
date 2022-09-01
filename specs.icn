@@ -1,0 +1,274 @@
+# An implementation of the SPECS stage as a command line utility
+# (Note requires unicon)
+
+# Copyright 2022 Cheyenne Wills
+#
+# Permission is hereby granted, free of charge, to any person obtaining a
+# copy of this software and associated documentation files (the "Software"),
+# to deal in the Software without restriction, # including without limitation
+# the rights to use, copy, modify, merge, publish, distribute, sublicense,
+# and/or sell copies of the Software, and to permit persons to whom the
+# Software is furnished to do so, subject to the following conditions:
+#
+# The above copyright notice and this permission notice shall be included in
+# all copies or substantial portions of the Software.
+#
+# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+# IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+# FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+# AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+# LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+# OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+# SOFTWARE.
+
+
+
+link ximage
+link scan
+record _fielddef_(inputspec, strip, counteraction, conversion, outputspec, placement)
+procedure main(args)
+    specssrc := args[1]
+
+    if *args = 0 | *args > 3 then
+        stop("incorrect number of parameters")
+    if *args = 1 then
+        inf := &input
+    else
+        inf := open(args[2],"r")
+
+    if *args = 2 then
+        outf := &output
+    else
+        outf = open(args[3],"w")
+
+    specs := parsespecs(specssrc)
+    curfieldchar := ';'
+#    xdump(spec)
+    while line := read() do line ? {
+        output := ""
+        tab(1)
+        wordpos := []
+        while not pos(0) do {
+            ws()
+            s := &pos
+            tab(upto(' \t') | 0)
+            put(wordpos, [s, &pos])
+        }
+        fieldpos := []
+        tab(1)
+        while not pos(0) do {
+            s := &pos
+            tab(upto(curfieldchar) | 0)
+            put(fieldpos, s, &pos)
+            =curfieldchar
+        }
+        tab(1)
+        every spec := !specs do {
+#            xdump(s)
+#            snapshot(output)
+            outputstr := &null
+            case spec.inputspec[1] of {
+                "literal": {
+                    outputstr := spec.inputspec[2]
+                }
+                "numrange1": { # Absolute position
+                    spos := spec.inputspec[2][1]
+                    epos := spec.inputspec[2][2]
+                    if epos == "*" then epos := 0
+                    else epos +:= 1
+                    tab(spos)
+                    outputstr := tab(epos)
+                }
+                "numrange2": { # Length
+                    spos := spec.inputspec[2][1]
+                    epos := spec.inputspec[2][2]
+                    if epos == "*" then epos := *&subject - &pos
+                    tab(spos)
+                    outputstr := move(epos)
+                }
+                "numpos": {
+                    spos := spec.inputspec[2][1]
+                    tab(spos)
+                    outputstr := move(1)
+                }
+                "wordrange": {
+                    swpos := spec.inputspec[2][1]
+                    ewpos := spec.inputspec[2][2] + 1
+                    l := []
+                    every _ := !wordpos[swpos:ewpos] do {
+                        spos := _[1]
+                        epos := _[2]
+                        tab(spos)
+                        put(l, tab(epos))
+                    }
+                    outputstr := ""
+                    every outputstr ||:= !l do outputstr ||:= " "
+                    outputstr[-1] := ""
+                }
+                "wordpos": {
+                    spos := wordpos[ spec.inputspec[2][1]][1]
+                    epos := wordpos[ spec.inputspec[2][1]][2]
+                    tab(spos)
+                    outputstr := tab(epos)
+                }
+                "fieldrange": stop("not implemented")
+                "fieldpos": stop("not implemented")
+            }
+            case spec.outputspec[1] of {
+                "." : &null
+                "outnumrange1": { # specific positions
+                    spos := spec.outputspec[2][1]
+                    epos := spec.outputspec[2][2]
+                    if epos == "*" then epos := 0
+                    if epos > *output then
+                        output := left(output, epos)
+                    output[spos:epos] := outputstr
+                }
+                "outnumrange2": { # specific start position and length
+                    spos := spec.outputspec[2][1]
+                    epos := spec.outputspec[2][2]
+                    if epos == "*" then epos := *&subject - spos
+                    if spos + epos > *output then
+                        output := left(output, spos + epos)
+                    epos := spos + epos
+                    output[spos : epos] := outputstr
+                }
+
+                "outnumpos": {
+                    spos := spec.outputspec[2][1]
+                    epos := spos + *outputstr
+#                    write("*output=", *output, " spos=", spos, " epos=", epos)
+                    if epos > *output then
+                        output := left(output, epos - 1)
+                    output[spos:epos] := outputstr
+                }
+                "outnext": {
+#                    write("outnext")
+#                    xdump(output)
+#                    xdump(outputstr)
+#                    xdump(spec)
+                    len := spec.outputspec[2][1]
+                    if len == "*" then len := *outputstr
+                    output ||:= left(outputstr, len)
+                }
+
+                "outnextword": {
+#                    xdump(output)
+#                    xdump(outputstr)
+#                    xdump(spec)
+                    len := spec.outputspec[2][1]
+                    if len == "*" then len := *outputstr
+                    output ||:= " " || left(outputstr, len)
+                }
+                "outnextfield": stop("not implemented")
+            }
+        }
+        write(outf, output)
+    }
+end
+
+procedure parsespecs(specs)
+    speclist := []
+
+    num := ("-" .| "") || Span(&digits)
+    numrange1 := num -> mmm || "-" || (num .| "*") -> nnn
+    numrange2 := num -> mmm || "." || (num .| "*") -> nnn
+    specs ? while not pos(0) do {
+        ws()
+        curfielddef := _fielddef_()
+
+        # Get the input
+        if =numrange1 then {
+            curfielddef.inputspec := ["numrange1", [mmm,nnn]]
+        } else if =numrange2 then {
+            curfielddef.inputspec := ["numrange2", [mmm, nnn]]
+        } else if =(num -> mmm) then {
+            curfielddef.inputspec := ["numpos", [mmm]]
+        } else if abbrev("Word") then {
+            if =numrange1 then {
+                curfielddef.inputspec := ["wordrange",[mmm,nnn]]
+            } else if =(num -> mmm) then {
+                curfielddef.inputspec := ["wordpos", [mmm]]
+            } else stop("Invalid word position")
+        } else if abbrev("F") then {
+            if =numrange1 then {
+                curfielddef.inputspec := ["fieldrange",[mmm,nnn]]
+            } else if =(num -> mmm) then {
+                curfielddef.inputspec := ["fieldpos", [mmm]]
+            } else stop("Invalid field position")
+        } else {
+            delim := move(1)
+            str := tab(upto(delim)) | stop("Missing closing string delimiter")
+            curfielddef.inputspec := ["literal", str]
+            move(1)
+        }
+
+        ws()
+        if abbrev("STRIP") then curfielddef.strip := 1
+
+        ws()
+        curfielddef.conversion := matchicase("C2D" |
+                "C2X" |
+                "C2B" |
+                "C2F" |
+                "D2C" |
+                "D2X" |
+                "X2C" |
+                "X2D" |
+                "B2C" |
+                "F2C") | &null
+        ws()
+        if ="." then {
+            curfielddef.outputspec := ["noprint", []]
+        } else if =numrange1 then {
+            curfielddef.outputspec := ["outnumrange1", [mmm,nnn]]
+        } else if =numrange2 then {
+            curfielddef.outputspec := ["outnumrange2", [mmm,nnn]]
+        } else if =(num -> mmm) then {
+            curfielddef.outputspec := ["outnumpos", [mmm]]
+        } else if abbrev("Next") then {
+            len := "*"
+            if ="." then len := tab(many(&digits))
+            curfielddef.outputspec := ["outnext", [len]]
+        } else if abbrev("NEXTWord" | "NW") then {
+            len := "*"
+            if ="." then len := tab(many(&digits))
+            curfielddef.outputspec := ["outnextword",[len]]
+        } else if abbrev("NEXTField" | "NF") then {
+            len := "*"
+            if ="." then len := tab(many(&digits))
+            curfield.outputspec := ["outnextfield",[len]]
+        }
+        ws()
+        curfielddef.placement := (abbrev("Left" | "Center" | "Centre" | "Right")) | &null
+        put(speclist, curfielddef)
+    }
+    return speclist
+end
+
+procedure ws()
+    suspend tab(many(' \t'))
+end
+procedure matchicase(x)
+    a := map(x)
+    b := map(&subject[&pos +: *x]) | fail
+    if a == b then suspend move(*x)
+end
+
+
+procedure abbrev(m,c)
+    /c := &letters
+    minlen := many(&ucase, m) - 1
+    spos := &pos
+    s := map(tab(many(c) | 0))
+    &pos := spos
+    m := map(m)
+#   write("[",m,"] [",s,"] ",c," ", minlen," ")
+    if not (minlen <= *s <= *m) then fail
+
+    if m[1+:*s] == s then {
+        move(*s)
+        suspend m
+    }
+    &pos := spos
+end
