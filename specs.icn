@@ -93,17 +93,25 @@ procedure main(args)
                 }
                 "wordrange": {
                     swpos := spec.inputspec[2][1]
-                    ewpos := spec.inputspec[2][2] + 1
-                    l := []
-                    every _ := !wordpos[swpos:ewpos] do {
-                        spos := _[1]
-                        epos := _[2]
+                    ewpos := spec.inputspec[2][2]
+                    if ewpos == "*" then {
+                        spos := wordpos[swpos][1]
+                        epos := 0
                         tab(spos)
-                        put(l, tab(epos))
+                        outputstr := tab(0)
+                    } else {
+                        ewpos +:= 1
+                        l := []
+                        every _ := !wordpos[swpos:ewpos] do {
+                            spos := _[1]
+                            epos := _[2]
+                            tab(spos)
+                            put(l, tab(epos))
+                        }
+                        outputstr := ""
+                        every outputstr ||:= !l do outputstr ||:= " "
+                        outputstr[-1] := ""
                     }
-                    outputstr := ""
-                    every outputstr ||:= !l do outputstr ||:= " "
-                    outputstr[-1] := ""
                 }
                 "wordpos": {
                     spos := wordpos[ spec.inputspec[2][1]][1]
